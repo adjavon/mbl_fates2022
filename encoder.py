@@ -5,7 +5,7 @@ class Vgg2D(torch.nn.Module):
             input_size,
             fmaps=12,
             downsample_factors=[(2, 2), (2, 2), (2, 2), (2, 2)],
-            output_classes=2):
+            output_classes=32):
 
         super(Vgg2D, self).__init__()
 
@@ -56,7 +56,7 @@ class Vgg2D(torch.nn.Module):
                 current_size[0] *
                 current_size[1] *
                 current_fmaps,
-                output_classes=32)]
+                output_classes)]
 
         self.classifier = torch.nn.Sequential(*classifier)
     
