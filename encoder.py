@@ -1,13 +1,16 @@
-class Vgg2D(torch.nn.Module):
+import torch
+
+
+class Encoder(torch.nn.Module):
 
     def __init__(
             self,
             input_size,
             fmaps=12,
-            downsample_factors=[(2, 2), (2, 2), (2, 2), (2, 2)],
+            downsample_factors=[(2, 2), (2, 2), (3, 3), (3, 3)],
             output_classes=32):
 
-        super(Vgg2D, self).__init__()
+        super().__init__()
 
         self.input_size = input_size
 
@@ -59,18 +62,16 @@ class Vgg2D(torch.nn.Module):
                 output_classes)]
 
         self.classifier = torch.nn.Sequential(*classifier)
-    
-    def forward(self, raw):
 
+    def forward(self, raw):
         # add a channel dimension to raw
         # shape = tuple(raw.shape)
         # raw = raw.reshape(shape[0], 1, shape[1], shape[2])
-        
+
         # compute features
         f = self.features(raw)
         f = f.view(f.size(0), -1)
-        
+
         # classify
         y = self.classifier(f)
-
         return y

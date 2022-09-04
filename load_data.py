@@ -1,22 +1,23 @@
-## This script works to load the cropped SEM images
-## with synapses centered in the images, from the shared data
-## folder in the aws server with torch dataloader.
+"""
+This script works to load the cropped SEM images
+with synapses centered in the images, from the shared data
+folder in the aws server with torch dataloader.
 
-## The full dataset is manually divided into test and train sets,
-## with each set containing different animals, for the purpose of
-## avoiding learning features about images other than features
-## that give important biological insights into the differences
-## between conditions.
+The full dataset is manually divided into test and train sets,
+with each set containing different animals, for the purpose of
+avoiding learning features about images other than features
+that give important biological insights into the differences
+between conditions.
 
-## the train set is divided in script into train and validation sets
-
-# libraries used in this script
-from torch.utils.data import DataLoader, random_split, Subset
-from torch.utils.data.sampler import WeightedRandomSampler
-from torchvision.datasets import ImageFolder
-from torchvision import transforms
-import torch
+The train set is divided in script into train and validation sets
+"""
 import numpy as np
+import torch
+# libraries used in this script
+from torch.utils.data import DataLoader, Subset, random_split
+from torch.utils.data.sampler import WeightedRandomSampler
+from torchvision import transforms
+from torchvision.datasets import ImageFolder
 
 # these lines below are only for reference
 # V is control/vehicle, D is drug
@@ -29,13 +30,14 @@ animal_idx_lookup = {'F1V': 2,
                      'F7V': 3,
                      'F8D': 0,
                      'F23V': 1,
-                     'F24D': 5} # reference for animal index
+                     'F24D': 5}  # reference for animal index
 condition_idx_lookup = {'V': 0,
                         'D': 1}
 
 
 train_path = '/mnt/shared/the_fates/synapse_yuning/train_clahe/'
 test_path = '/mnt/shared/the_fates/synapse_yuning/test_clahe/'
+
 
 # use WeightedRandomSampler to randomly sample and
 # balance datasets if unbalanced
@@ -53,16 +55,10 @@ def balanced_sampler(dataset):
     weights = []
     for i in targets:
         weights.append(label_weights[i.item()])
-
-    # Print the Counts and Weights to make sure lower count classes
-    # have higher weights
-    #print("Number of images per class:")
-    #for c, n, w in zip(####need_edit######.classes, counts, label_weights):
-    #    print(f"\t{c}:\tn={n}\tweight={w}")
-
     # Create a sampler based on these weights
     sampler = WeightedRandomSampler(weights, len(dataset))
     return sampler
+
 
 # load train folder and separate into train and validation
 # load test folder
@@ -72,7 +68,7 @@ def load_data(train_path, test_path, train_num=5000):
     transform = transforms.Compose([transforms.Grayscale(),
                                     transforms.ToTensor(),
                                     transforms.Normalize((0.5,), (0.5,))
-                                   ])
+                                    ])
 
     # transforms targets (image label)
     # now targets will be a dict with both animal and condition idx
@@ -98,24 +94,24 @@ def load_data(train_path, test_path, train_num=5000):
 
     # load train and validation datasets
     trainval_dataset = ImageFolder(root=train_path, transform=transform,
-                                target_transform=target_transform_train)
+                                   target_transform=target_transform_train)
     num_images = len(trainval_dataset)
 
     # load test datasets
     test_dataset = ImageFolder(root=test_path, transform=transform,
-                                target_transform=target_transform_test)
-
+                               target_transform=target_transform_test)
 
     # split the data randomly (but with a fixed random seed)
-    train_dataset, validation_dataset = random_split(
-    trainval_dataset,
-    [train_num, num_images-train_num],
-    generator=torch.Generator().manual_seed(23061912))
+    train_dataset, validation_dataset = random_split(trainval_dataset,
+        [train_num, num_images-train_num],
+        generator=torch.Generator().manual_seed(23061912))
 
     # initialize dataloaders for each dataset
     sampler = balanced_sampler(train_dataset)
-    train_loader = DataLoader(train_dataset, batch_size=8, drop_last=True,
-    sampler=sampler)
+    train_loader = DataLoader(train_dataset,
+                              batch_size=8,
+                              drop_last=True,
+                              sampler=sampler)
     val_loader = DataLoader(validation_dataset, batch_size=32)
     test_loader = DataLoader(test_dataset, batch_size=32)
 

@@ -1,5 +1,5 @@
-import torch
 import numpy as np
+import torch
 
 
 class MLP(torch.nn.Module):
@@ -7,10 +7,10 @@ class MLP(torch.nn.Module):
         self,
         n_input,
         n_output,
-        n_latent = 128,
-        b_dropout = False,
-        depth = 8):
-        
+        n_latent=128,
+        b_dropout=False,
+        depth=4):
+
         super(MLP, self).__init__()
         self.n_input = n_input
         self.n_output = n_output
@@ -30,9 +30,9 @@ class MLP(torch.nn.Module):
                 ]
 
         self.layers += [torch.nn.Linear(current_size, n_output)]
-        #Build Model
+        # Build Model
         self.model_seq = torch.nn.Sequential(*self.layers)
 
-    def forward(self,z):
+    def forward(self, z):
         y = self.model_seq(z)
         return y
