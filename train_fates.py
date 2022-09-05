@@ -2,6 +2,7 @@ import argparse
 
 import numpy as np
 import torch
+from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import confusion_matrix
 from torch import nn, optim
 from tqdm import tqdm
@@ -9,6 +10,7 @@ from tqdm import tqdm
 from encoder import Encoder
 from load_data import load_data
 from MLP import MLP
+from pathlib import Path
 
 
 class NAGAN(nn.Module):
@@ -67,12 +69,20 @@ class Trainer:
         lr_d: float
             Learnig rate for the `nagan.discriminator`
         """
-        self.nagan = nagan
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        print(self.device)
+        self.nagan = nagan.to(self.device)
         class_parameters = (list(nagan.classifier.parameters()) +
                             list(nagan.encoder.parameters()))
         self.optimizer_c = optim.Adam(class_parameters, lr_c)
         self.optimizer_d = optim.Adam(nagan.discriminator.parameters(), lr_d)
         self.loss_fn = nn.CrossEntropyLoss()
+        self.train_dl = train_dl
+        self.val_dl = val_dl
+        self.test_dl = test_dl
+        self.writer = SummaryWriter()
+        self.global_iter = 0
+        self.global_epoch = 0
 
     def train(self):
         """Runs adversarial optimization on all bacthes in the dataloader
@@ -81,10 +91,14 @@ class Trainer:
         -------
         loss_c: the cross entropy on the class, not on the confounders.
         """
+        self.nagan.train()
         epoch_loss = 0
-        for x, y_u in self.train_dl:
-            y = y_u["y"]
-            u = y_u["u"]
+        epoch_loss_d = 0
+        n_iter = 0
+        for x, y_u in tqdm(self.train_dl, 'training'):
+            x = x.to(self.device)
+            y = y_u["y"].to(self.device)
+            u = y_u["u"].to(self.device)
             # Classifier step
             self.optimizer_c.zero_grad()
             set_requires_grad([self.nagan.encoder,
@@ -110,13 +124,19 @@ class Trainer:
                                self.nagan.discriminator],
                               [False, False, True])
             # Get the discriminator output
-            u_pred_d = self.discriminator(z.detach())
+            u_pred_d = self.nagan.discriminator(z.detach())
             # Get the cross entropy
             loss = self.loss_fn(u_pred_d, u)
             loss.backward()
             self.optimizer_d.step()
             epoch_loss += loss_c.item()
-        return epoch_loss / len(self.train_dl)
+            epoch_loss_d += loss.item()
+            self.global_iter += 1
+            n_iter += 1
+            self.writer.add_scalar("Loss", loss_c.item(), self.global_iter)
+            self.writer.add_scalar("Discrim. Loss", loss.item(), self.global_iter)
+        self.global_epoch += 1
+        return epoch_loss / n_iter, epoch_loss_d / n_iter
 
     @torch.no_grad()
     def evaluate(self, dataloader, name=""):
@@ -126,25 +146,33 @@ class Trainer:
         -------
         accuracy: the model accuracy on the class.
         """
+        self.nagan.eval()
         # Get an accuracy
         u_groundtruths = []
         y_groundtruths = []
         u_predictions = []
         y_predictions = []
         for x, y_u in tqdm(dataloader, desc=name):
-            y = y_u["y"]
-            u = y_u["u"]
+            x = x.to(self.device)
+            y = y_u["y"].to(self.device)
+            u = y_u["u"].to(self.device)
             z = self.nagan.encoder(x)
-            y_pred = self.nagan.classifier(z)
-            u_pred = self.nagan.discriminator(z)
+            y_logits = self.nagan.classifier(z)
+            y_pred = torch.argmax(y_logits, dim=1)
+            u_logits = self.nagan.discriminator(z)
+            u_pred = torch.argmax(u_logits, dim=1)
             y_predictions.append(y_pred)
             y_groundtruths.append(y)
             u_predictions.append(u_pred)
             u_groundtruths.append(u)
-        u_predictions = torch.cat(u_predictions)
-        u_groundtruths = torch.cat(u_groundtruths)
-        y_predictions = torch.cat(y_predictions)
-        u_groundtruths = torch.cat(u_groundtruths)
+        u_predictions = torch.cat(u_predictions).detach().cpu().numpy()
+        u_groundtruths = torch.cat(u_groundtruths).detach().cpu().numpy()
+        y_predictions = torch.cat(y_predictions).detach().cpu().numpy()
+        y_groundtruths = torch.cat(y_groundtruths).detach().cpu().numpy()
+        print(u_predictions.shape)
+        print(y_predictions.shape)
+        print(u_groundtruths.shape)
+        print(y_groundtruths.shape)
         # Get the accuracy
         u_confusion = confusion_matrix(u_predictions, u_groundtruths)
         y_confusion = confusion_matrix(y_predictions, y_groundtruths)
@@ -152,6 +180,8 @@ class Trainer:
         y_accuracy = y_confusion.trace() / y_confusion.sum()
         print("U", u_confusion)
         print("Y", y_confusion)
+        self.writer.add_scalar(f"U_Accuracy/{name}", u_accuracy, self.global_epoch)
+        self.writer.add_scalar(f"Y_Accuracy/{name}", y_accuracy, self.global_epoch)
         return u_accuracy, y_accuracy
 
     def validation(self):
@@ -165,7 +195,9 @@ class Trainer:
     def save(self, path):
         state_dict = {"optimizer_c": self.optimizer_c.state_dict(),
                       "optimizer_d": self.optimizer_d.state_dict(),
-                      "nagan": self.nagan.state_dict()}
+                      "nagan": self.nagan.state_dict(),
+                      "iterations": self.global_iter,
+                      "epoch": self.global_epoch}
         torch.save(state_dict, path)
 
     def load(self, path):
@@ -173,6 +205,8 @@ class Trainer:
         self.optimizer_c.load_state_dict(state_dict["optimizer_c"])
         self.optimizer_d.load_state_dict(state_dict["optimizer_d"])
         self.nagan.load_state_dict(state_dict["nagan"])
+        self.global_iter = state_dict["iterations"]
+        self.global_epoch = state_dict["epoch"]
 
 
 def get_checkpoint(directory, latest=True, best=False):
@@ -182,7 +216,8 @@ def get_checkpoint(directory, latest=True, best=False):
     paths: list
         Directory of checkpoints, named as `epochs_accuracy.pth`"
     """
-    paths = [path for path in directory.iterdir() if path.endswith('pth')]
+    directory = Path(directory)
+    paths = [path for path in directory.iterdir() if str(path).endswith('pth')]
     if len(paths) == 0:
         return None, 0
     if latest:
@@ -201,11 +236,13 @@ def Parser():
     parser.add_argument("--confounders", type=int, default=6,
                         help="Number of classes in the confounding features")
     parser.add_argument("--classes", type=int, default=2)
-    parser.add_argument("--latents", type=int, default=32)
-    parser.add_argument("--epochs", default=100,
+    parser.add_argument("--latents", type=int, default=512)
+    parser.add_argument("--epochs", default=100, type=int,
                         help="Number of epochs to train")
     parser.add_argument("--directory", default='./checkpoints',
                         help="Root directory for checkpoints")
+    parser.add_argument("--save_every", default=100, 
+                        help="How often (in epochs) to checkpoint the model")
     return parser
 
 
@@ -213,7 +250,7 @@ if __name__ == "__main__":
     parser = Parser()
     args = parser.parse_args()
     # Data
-    # train_dl, val_dl, test_dl = load_data()
+    train_dl, val_dl, test_dl = load_data()
 
     epochs = args.epochs
     input_size = args.input_size
@@ -228,20 +265,21 @@ if __name__ == "__main__":
     assert(tuple(y.shape) == (1, args.classes))
     assert(tuple(u.shape) == (1, args.confounders))
 
-    # print("Creating trainer")
-    # trainer = Trainer(model, train_dl, val_dl, test_dl)
+    print("Creating trainer")
+    trainer = Trainer(model, train_dl, val_dl, test_dl)
 
-    # path, start = get_checkpoint(args.directory, latest=True)
-    # if path is not None:
-    #     print(f"Loading checkpoint at epoch {start}.")
-    #     trainer.load(path)
-    # print("Training")
-    # # Training loop
-    # for epoch in range(start, epochs):
-    #     # One full epoch
-    #     loss = trainer.train()
-    #     # Validation
-    #     accuracy = trainer.validation()
-    #     print(f"Epoch {epoch}: loss {loss},\nVal accuracy: {accuracy}")
-    #     # Checkpoint
-    #     trainer.save(f"{epoch}_{int(accuracy*100)}.pth")
+    path, start = get_checkpoint(args.directory, latest=True)
+    if path is not None:
+        print(f"Loading checkpoint at epoch {start}.")
+        trainer.load(path)
+    print("Training")
+    # Training loop
+    for epoch in range(start, epochs):
+        # One full epoch
+        loss_c, loss_d = trainer.train()
+        # Validation
+        u_accuracy, y_accuracy = trainer.validation()
+        print(f"Epoch {epoch}: loss {loss_c}, d. loss: {loss_d},\nVal. U accuracy: {u_accuracy},\nVal. Y accuracy: {y_accuracy}")
+        # Checkpoint
+        if epoch % args.save_every == 0:
+            trainer.save(args.directory + f"/{epoch}.pth")

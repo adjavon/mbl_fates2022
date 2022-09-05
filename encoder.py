@@ -27,14 +27,14 @@ class Encoder(torch.nn.Module):
                     kernel_size=3,
                     padding=1),
                 torch.nn.BatchNorm2d(fmaps),
-                torch.nn.ReLU(inplace=True),
+                torch.nn.ReLU(),
                 torch.nn.Conv2d(
                     fmaps,
                     fmaps,
                     kernel_size=3,
                     padding=1),
                 torch.nn.BatchNorm2d(fmaps),
-                torch.nn.ReLU(inplace=True),
+                torch.nn.ReLU(),
                 torch.nn.MaxPool2d(downsample_factors[i])
             ]
 

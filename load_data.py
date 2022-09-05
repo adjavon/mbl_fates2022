@@ -31,8 +31,14 @@ animal_idx_lookup = {'F1V': 2,
                      'F8D': 0,
                      'F23V': 1,
                      'F24D': 5}  # reference for animal index
-condition_idx_lookup = {'V': 0,
-                        'D': 1}
+# We create a condition index which only penalizes the discriminator if it is 
+# able to tell between two different animals within the same class
+condition_idx_lookup = {'F1V': 0,
+                        'F7V': 1,
+                        'F2D': 0,
+                        'F24D': 1,
+                        'F8D': 0,
+                        'F23V': 1}
 
 
 train_path = '/mnt/shared/the_fates/synapse_yuning/train_clahe/'
@@ -63,7 +69,7 @@ def balanced_sampler(dataset):
 # load train folder and separate into train and validation
 # load test folder
 # train_num is for manually divide train and val sets
-def load_data(train_path, test_path, train_num=5000):
+def load_data(train_num=5000):
     # set up image transformations
     transform = transforms.Compose([transforms.Grayscale(),
                                     transforms.ToTensor(),
@@ -72,25 +78,41 @@ def load_data(train_path, test_path, train_num=5000):
 
     # transforms targets (image label)
     # now targets will be a dict with both animal and condition idx
-    def target_transform_test(u):
-        condition = test_animals[u]
+    def target_transform_test(animal):
+        """Transforms animal into a D/V class (y) and a confounder class (u)
 
+        animal: int
+            The index of the animal from which this sample is taken.
+
+        return: dict
+            u -> counfounder class that prevents distinguishing animals within one D/V class
+            y -> D/V class
+        """
+        condition = test_animals[animal]
+        u = condition_idx_lookup[condition]
         if "V" in condition:
             y = 0
         if "D" in condition:
             y = 1
-
         return {'u': u, 'y': y}
 
-    def target_transform_train(u):
-        condition = train_animals[u]
+    def target_transform_train(animal):
+        """Transforms animal into a D/V class (y) and a confounder class (u)
 
+        animal: int
+            The index of the animal from which this sample is taken.
+
+        return: dict
+            u -> counfounder class that prevents distinguishing animals within one D/V class
+            y -> D/V class
+        """
+        condition = train_animals[animal]
+        u = condition_idx_lookup[condition]
         if "V" in condition:
             y = 0
         if "D" in condition:
             y = 1
-
-        return {'u': u+2, 'y': y}
+        return {'u': u, 'y': y}
 
     # load train and validation datasets
     trainval_dataset = ImageFolder(root=train_path, transform=transform,
@@ -117,6 +139,3 @@ def load_data(train_path, test_path, train_num=5000):
 
     # each return is tensor type
     return train_loader, val_loader, test_loader
-
-    # get the datasets
-    load_data(train_path, test_path)

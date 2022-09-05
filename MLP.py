@@ -7,7 +7,7 @@ class MLP(torch.nn.Module):
         self,
         n_input,
         n_output,
-        n_latent=128,
+        n_latent=4096,
         b_dropout=False,
         depth=4):
 
@@ -21,13 +21,16 @@ class MLP(torch.nn.Module):
         for i in range(depth):
             if self.b_dropout == True:
                 self.layers += [
-                    torch.nn.ReLU(torch.nn.Linear(current_size,n_latent)),
+                    torch.nn.Linear(current_size,n_latent),
+                    torch.nn.ReLU(),
                     torch.nn.Dropout()
                 ]
             else:
                 self.layers += [
-                    torch.nn.ReLU(torch.nn.Linear(current_size,n_latent)),
+                    torch.nn.Linear(current_size,n_latent),
+                    torch.nn.ReLU(),
                 ]
+            current_size = n_latent
 
         self.layers += [torch.nn.Linear(current_size, n_output)]
         # Build Model
