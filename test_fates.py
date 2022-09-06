@@ -4,8 +4,8 @@ from pathlib import Path
 import torch
 from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
-from train import NAGAN
 
+from train_fates import NAGAN
 from balance_accuracy import balance_accuracy
 from load_data import load_data
 
@@ -67,16 +67,18 @@ class Tester:
         directory = Path(directory)
         # Load model weights
         with open(output_file, 'w') as fd:
-            fd.write("path,iterations,epoch,y_accuracy,u_accuracy")
+            fd.write("path,iterations,epoch,u_accuracy,y_accuracy\n")
         for path in directory.iterdir():
             global_iter, epoch = self.load(path)
-            results = self.evaluate()
+            results = self.evaluate(str(path))
             # Get balanced accuracy
-            u_accuracy = balance_accuracy(results["u"])
-            y_accuracy = balance_accuracy(results["y"])
+            u_accuracy = balance_accuracy(*results["u"])
+            y_accuracy = balance_accuracy(*results["y"])
+            u_conf, y_conf = results["confusion"]
+            print("U:", u_accuracy, u_conf)
+            print("Y:", y_accuracy, y_conf)
             with open(output_file, 'a') as fd:
-                fd.write(f"{str(path)},{global_iter},{epoch},"
-                         f"{y_accuracy},{u_accuracy}")
+                fd.write(f"{str(path)},{global_iter},{epoch},{u_accuracy},{y_accuracy}\n")
 
 
 def Parser():
@@ -100,18 +102,16 @@ if __name__ == "__main__":
     # Data
     _, _, test_dl = load_data()
 
-    epochs = args.epochs
     input_size = args.input_size
     model = NAGAN(input_size, n_classes=args.classes,
                   n_confounders=args.confounders,
                   n_latents=args.latents)
-
-    tester = Tester(model, test_dl)
-
     print("Checking model.")
     dummy = torch.zeros((1, 1, input_size[1], input_size[2]))
     u, y = model(dummy)
     assert(tuple(y.shape) == (1, args.classes))
     assert(tuple(u.shape) == (1, args.confounders))
+    
     print("Running test")
+    tester = Tester(model, test_dl)
     tester.test(args.directory, output_file=args.output)

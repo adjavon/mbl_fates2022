@@ -3,7 +3,7 @@ def balance_accuracy(gt_ls, pred_ls):
     tn = 0
     fp = 0
     fn = 0
-    for i in gt_ls:
+    for i in range(len(gt_ls)):
         if gt_ls[i] == 1 and pred_ls[i] == 1:
             tp += 1
         elif gt_ls[i] == 1 and pred_ls[i] == 0:
